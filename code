@@ -1,0 +1,104 @@
+#include <Wire.h>
+#include <MPU6050.h>
+
+MPU6050 mpu;
+
+// ---------- Pins ----------
+#define TRIG1 25
+#define ECHO1 32
+#define GREEN1 14
+#define RED1 27
+
+#define TRIG2 26
+#define ECHO2 33
+#define GREEN2 12
+#define RED2 13
+
+#define RELAY_PIN 23
+
+// ---------- MPU / Buzzer ----------
+#define ACC_THRESHOLD 17000
+#define BUZZER_TIME 3000
+#define COOLDOWN_TIME 5000
+
+unsigned long lastAccidentTime = 0;
+bool buzzerActive = false;
+
+// ---------- Ultrasonic ----------
+#define DIST_THRESHOLD 50 // cm
+
+long readDistanceCM(int trigPin, int echoPin) {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  long duration = pulseIn(echoPin, HIGH, 30000); // 30ms timeout
+  long distance = duration * 0.034 / 2;
+  return distance;
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(TRIG1, OUTPUT); pinMode(ECHO1, INPUT);
+  pinMode(TRIG2, OUTPUT); pinMode(ECHO2, INPUT);
+
+  pinMode(GREEN1, OUTPUT); pinMode(RED1, OUTPUT);
+  pinMode(GREEN2, OUTPUT); pinMode(RED2, OUTPUT);
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, HIGH); // Buzzer OFF
+
+  Wire.begin(21, 22);
+  mpu.initialize();
+  if (mpu.testConnection())
+    Serial.println("✅ MPU6050 Connected");
+  else
+    Serial.println("❌ MPU6050 NOT Connected");
+}
+
+void loop() {
+  // ---------- Ultrasonic Sensor 1 ----------
+  long dist1 = readDistanceCM(TRIG1, ECHO1);
+  if(dist1 > 0 && dist1 < DIST_THRESHOLD){
+    digitalWrite(RED1, HIGH);
+    digitalWrite(GREEN1, LOW);
+  } else {
+    digitalWrite(RED1, LOW);
+    digitalWrite(GREEN1, HIGH);
+  }
+
+  // ---------- Ultrasonic Sensor 2 ----------
+  long dist2 = readDistanceCM(TRIG2, ECHO2);
+  if(dist2 > 0 && dist2 < DIST_THRESHOLD){
+    digitalWrite(RED2, HIGH);
+    digitalWrite(GREEN2, LOW);
+  } else {
+    digitalWrite(RED2, LOW);
+    digitalWrite(GREEN2, HIGH);
+  }
+
+  // ---------- MPU / Buzzer ----------
+  int16_t ax, ay, az;
+  mpu.getAcceleration(&ax, &ay, &az);
+  unsigned long now = millis();
+
+  if(!buzzerActive &&
+     (abs(ax) > ACC_THRESHOLD || abs(ay) > ACC_THRESHOLD) &&
+     (now - lastAccidentTime > COOLDOWN_TIME)) {
+
+    Serial.println("🚨 ACCIDENT DETECTED");
+    buzzerActive = true;
+    lastAccidentTime = now;
+    digitalWrite(RELAY_PIN, LOW); // Buzzer ON
+  }
+
+  if(buzzerActive && (now - lastAccidentTime >= BUZZER_TIME)){
+    digitalWrite(RELAY_PIN, HIGH); // Buzzer OFF
+    buzzerActive = false;
+    Serial.println("🔕 Buzzer OFF");
+  }
+
+  delay(50);
+}
